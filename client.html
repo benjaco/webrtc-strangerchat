@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+</head>
+<body>
+    <h1>Stranger chat</h1>
+
+
+    <video id="myself" height="120" width="160" autoplay muted></video>
+    <video id="remote" height="120" width="160" autoplay></video>
+
+<script>
+
+    let myself = document.getElementById('myself')
+    let remote = document.getElementById('remote')
+    
+
+    function findPeer(stream) {
+        let isResolved = false;
+        let socket = new WebSocket("ws://"+location.host+"/ws");
+        let peer = new RTCPeerConnection();
+        let channel = false;
+        
+        peer.onicecandidate = e => {
+            console.log("ice", e);
+            if (!e.candidate) return;
+            socket.send(JSON.stringify({
+                type: "icecandidate",
+                candidate: e.candidate
+            }));
+        };
+
+
+        socket.addEventListener("message", async rawmsg => {
+            console.log(rawmsg);
+            let msg = JSON.parse(rawmsg.data);
+            switch (msg.type) {
+                case ":create_offer":
+                    channel = peer.createDataChannel("sendChannel");
+                    let offer = await peer.createOffer();
+                    await peer.setLocalDescription(offer);
+                    console.log("offer", offer);
+                    socket.send(JSON.stringify(offer));
+                    break;
+                case "offer":
+                    await peer.setRemoteDescription(msg);
+                    let answer = await peer.createAnswer();
+                    await peer.setLocalDescription(answer);
+                    socket.send(JSON.stringify(answer));
+                    break;
+                case "icecandidate":
+                    await peer.addIceCandidate(msg.candidate);
+                    break;
+                case "answer":
+                    await peer.setRemoteDescription(msg);
+                    isResolved = true;
+                    socket.close();
+                    resolve([peer, channel, true]);
+                    break;
+                case ":peer_disconnected":
+                    break;
+                default:
+                    console.log(msg);
+            }
+        });
+
+        return peer;
+    }
+
+    navigator.mediaDevices.getUserMedia({ audio: true, video: true })
+        .then(function(stream) {
+            myself.srcObject = stream;
+
+            let peer = findPeer();
+
+            peer.addEventListener('track',  e => {
+                console.log(e)
+                remote.srcObject = e.streams[0]
+            })
+            
+            stream.getTracks().forEach(track => peer.addTrack(track, stream));
+            
+        })
+        .catch(function(err) {
+        /* handle the error */
+        });
+
+    
+
+    
+
+
+   
+
+</script>
+
+</body>
+</html>
